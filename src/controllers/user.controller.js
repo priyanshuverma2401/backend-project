@@ -6,6 +6,20 @@ import {ApiResponse} from "../utils/ApiResponse.js";
 
 
 
+const generateAccessAndRefreshToken = async(userId) => {
+  try{
+    const user = await User.findById(userId);
+    const accessToken = user.generateAccessToken();
+    const refreshToken = user.generateRefreshToken();
+    user.refreshToken = refreshToken;
+    await user.save({validateBeforeSave: false});
+    return {accessToken, refreshToken};
+  }catch(error){
+    throw newApiError(500, "Token generation failed")
+  }
+}
+
+
 const registerUser = asyncHandler(async (req, res) => {
   //get user details from user
   //validation - not empty
@@ -22,7 +36,7 @@ const registerUser = asyncHandler(async (req, res) => {
   if (fullname == "" || email == "" || username == "" || password == "") {
     throw new ApiError(400, "full name is required")
   }
-  const existeduser = User.findOne({
+  const existeduser = await User.findOne({
     $or:[
       { username }, { email }
     ]
@@ -44,7 +58,7 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Avatar upload failed");
   }
 
-  const user = await user.create({
+  const user = await User.create({
     fullname,
     avatar : avatar.url,
     coverImage: coverImage?.url || "",
@@ -53,7 +67,7 @@ const registerUser = asyncHandler(async (req, res) => {
     password,
   })
 
-  const createdUser = await user.findById(user._id).select("-password -refreshTokens");
+  const createdUser = await User.findById(user._id).select("-password -refreshTokens");
 
   if (!createdUser){
     throw new ApiError(500, "User creation failed");
@@ -61,5 +75,65 @@ const registerUser = asyncHandler(async (req, res) => {
 
   return res.status(201).json(new ApiResponse(201, createdUser, "user created successfully"))
 }) 
+
+
+
+
+
+const loginUser = asyncHandler(async (req, res) =>{
+  //req body -> data
+  //username, email, password
+  //find the user
+  //password match
+  //access and refresh token
+  //send cookies
+  //send response
+
+  const {username, email, password} = req.body;
+  if (!username && !email){
+    throw new ApiError(400, "username or email is required")
+  }
+
+  const user = await User.findOne({
+    $or: [
+      {username},
+      {email}
+    ]
+  })
+
+  if (!user){
+    throw new ApiError(404, "User not found")
+  }
+
+const ispasswordValid = await user.isPasswordCorrect(password);
+if (!ispasswordValid){
+  throw new ApiError(401, "Password is incorrect")
+}
+
+const {accessToken, refreshToken} = await generateAccessAndRefreshToken(user._id);
+
+const loggedInUser = await findById(user._id).select("-password -refreshTokens");
+const options = {
+  httpOnly: true,
+  secure: true
+}
+return res
+.status(200)
+.cookie("accessToken", accessToken, options)
+.cookie("refreshToken", refreshToken, options)
+.json(
+  new ApiResponse(
+    200,
+    {
+      user: loggedInUser,
+      accessToken,
+      refreshToken
+    },
+    "User logged in successfully"
+  )
+)
+
+})
+
 
 export {registerUser}
